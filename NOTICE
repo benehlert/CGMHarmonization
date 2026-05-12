@@ -1,0 +1,16 @@
+INSIGHT CGM Harmonization includes adapted reference preprocessing scripts
+from Awesome-CGM.
+
+The reference scripts under `Awesome-CGM/` are derived from:
+
+Xinran Xu, Neo Kok, Junyan Tan, Mary Martin, David Buchanan, Elizabeth Chun,
+Rucha Bhat, Shaun Cass, Eric Wang, Sangaman Senthil, and Irina Gaynanova.
+IrinaStatsLab/Awesome-CGM: Updated release with additional public CGM dataset
+and enhanced processing (v2.0.0). Zenodo, 2024.
+
+The Awesome-CGM code is distributed under the MIT License. Its license text is
+retained at `Awesome-CGM/LICENSE`.
+
+This repository does not redistribute CGM datasets or generated INSIGHT result
+artifacts. Users must obtain any source datasets from their original data
+providers and generate outputs locally.

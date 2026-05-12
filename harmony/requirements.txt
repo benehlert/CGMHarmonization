@@ -1,0 +1,9 @@
+anthropic
+openai
+openpyxl
+pandas
+pyarrow
+python-dotenv
+structlog
+typer
+xlrd
