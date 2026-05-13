@@ -1393,7 +1393,53 @@ def build_parse_qc(
     }
 
 
-def has_cgm_semantic_evidence(meta: FileMeta, spec: ParseSpec) -> bool:
+def _has_structural_cgm_evidence(df: pd.DataFrame, spec: ParseSpec) -> bool:
+    if spec.file_role not in ALLOWED_CGM_ROLES or spec.glucose_column not in df.columns:
+        return False
+    try:
+        filtered = apply_row_filters(df, spec.row_filters)
+        if len(filtered) < max(4, spec.min_rows):
+            return False
+        glucose = pd.to_numeric(clean_string_series(filtered[spec.glucose_column]), errors="coerce")
+        valid_glucose = glucose.replace([np.inf, -np.inf], np.nan).dropna()
+        if len(valid_glucose) < max(4, spec.min_rows):
+            return False
+        unit = (spec.glucose_unit or "unknown").lower()
+        mgdl_fraction = float(valid_glucose.between(40, 500).mean())
+        mmol_fraction = float(valid_glucose.between(2, 35).mean())
+        if "mmol" in unit:
+            glucose_fraction = mmol_fraction
+        elif "mg" in unit:
+            glucose_fraction = mgdl_fraction
+        else:
+            glucose_fraction = max(mgdl_fraction, mmol_fraction)
+        if glucose_fraction < 0.8 or valid_glucose.nunique(dropna=True) < 3:
+            return False
+
+        timestamps = build_timestamp_series(filtered, spec)
+        valid_timestamps = timestamps.dropna()
+        timestamp_rate = len(valid_timestamps) / max(len(filtered), 1)
+        if timestamp_rate < max(0.5, spec.timestamp_parse_min_rate * 0.8):
+            return False
+        if valid_timestamps.nunique(dropna=True) < 4:
+            return False
+
+        interval_minutes: list[float] = []
+        if spec.subject_column and spec.subject_column in filtered.columns:
+            subjects = clean_string_series(filtered[spec.subject_column]).fillna("UNKNOWN")
+            for _, subject_timestamps in valid_timestamps.groupby(subjects.loc[valid_timestamps.index]):
+                diffs = subject_timestamps.sort_values().diff().dropna().dt.total_seconds() / 60.0
+                interval_minutes.extend(float(value) for value in diffs if value > 0)
+        else:
+            diffs = valid_timestamps.sort_values().diff().dropna().dt.total_seconds() / 60.0
+            interval_minutes.extend(float(value) for value in diffs if value > 0)
+        dense_intervals = [value for value in interval_minutes if 1 <= value <= 360]
+        return len(dense_intervals) >= 3
+    except Exception:
+        return False
+
+
+def has_cgm_semantic_evidence(meta: FileMeta, spec: ParseSpec, df: Optional[pd.DataFrame] = None) -> bool:
     glucose_name = normalize_column_name(spec.glucose_column)
     blocked = ("calorie", "calories", "cals", "steps", "sleep", "heart", "heartrate", "respiratory")
     if any(token in glucose_name for token in blocked):
@@ -1419,7 +1465,11 @@ def has_cgm_semantic_evidence(meta: FileMeta, spec: ParseSpec) -> bool:
         "mmoll",
         "navsg",
     )
-    return any(token in joined for token in evidence) or glucose_name == "gl"
+    if any(token in joined for token in evidence) or glucose_name == "gl":
+        return True
+    if df is None:
+        return False
+    return _has_structural_cgm_evidence(df, spec)
 
 
 def extract_with_spec(meta: FileMeta, spec: ParseSpec) -> tuple[pd.DataFrame, dict[str, Any], str]:
@@ -1427,7 +1477,7 @@ def extract_with_spec(meta: FileMeta, spec: ParseSpec) -> tuple[pd.DataFrame, di
     spec = resolve_columns(spec, df.columns)
     if spec.glucose_column not in df.columns:
         raise ValueError(f"Glucose column {spec.glucose_column!r} not found in {meta.relative_path}")
-    if not has_cgm_semantic_evidence(meta, spec):
+    if not has_cgm_semantic_evidence(meta, spec, df):
         raise ValueError(f"Glucose column {spec.glucose_column!r} lacks CGM semantic evidence in {meta.relative_path}")
     filtered = apply_row_filters(df, spec.row_filters)
     timestamps = build_timestamp_series(filtered, spec)
